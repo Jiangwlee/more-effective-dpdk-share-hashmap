@@ -6,6 +6,7 @@
 #include <iostream>
 #include <sstream>
 #include <rte_malloc.h>
+#include <rte_rwlock.h>
 #include "shm_common.h"
 
 using std::ostream;
@@ -29,23 +30,72 @@ struct PrintNode {
 template <typename _Node, typename _Key, typename _KeyEqual>
 class Bucket {
     public:
-        Bucket () : m_size(0), m_head(NULL) {}
+        Bucket () : m_size(0), m_head(NULL) {rte_rwlock_init(&m_lock);}
         ~Bucket () {clear();}
 
-        void clear(void) {
+        _Node * clear(void) {
+            rte_rwlock_write_lock(&m_lock);
+            
+            _Node* head = m_head;
             m_size = 0;
             m_head = NULL;
+
+            rte_rwlock_write_unlock(&m_lock);
+            return head;
         }
 
         // Put a node at the head of this bucket
         void put(_Node * node) {
+            rte_rwlock_write_lock(&m_lock);
+
             node->set_next(m_head);
             m_head = node;
             ++m_size;
+
+            rte_rwlock_write_unlock(&m_lock);
         }
 
         // Lookup a node by signature and key
         _Node * lookup(const sig_t &sig, const _Key &key) {
+            rte_rwlock_write_lock(&m_lock);
+
+            _Node * node = find_node(sig, key);
+
+            rte_rwlock_write_unlock(&m_lock);
+            return node;
+        }
+
+        // Remove a node from this bucket
+        _Node * remove(const sig_t &sig, const _Key &key) {
+            rte_rwlock_write_lock(&m_lock);
+
+            _Node * node = find_node(sig, key);
+
+            // If we find this node, now it is in the front of our node list,
+            // we just remove it from the head
+            if (node) {
+                m_head = node->next();
+                node->set_next(NULL);
+                --m_size;
+            }
+
+            rte_rwlock_write_unlock(&m_lock);
+            return node;
+        }
+
+        uint32  size(void) const {return m_size;}
+        _Node * head(void) const {return m_head;}
+        void str(ostream &os) {
+            os << "\nBucket Size : " << m_size << std::endl;
+            _Node * curr = m_head;
+            while (curr) {
+                curr->str(os);
+                curr = curr->next();
+            }
+        }
+
+    private:
+        _Node * find_node(const sig_t &sig, const _Key &key) {
             // Search in this bucket
             _Node * current = m_head;
             _Node * prev = current;
@@ -65,60 +115,16 @@ class Bucket {
                     current->set_next(m_head);
                     m_head = current;
                 }
-
-#ifdef DEBUG
-                std::ostringstream log;
-                str(log);
-                std::cout << log.str() << std::endl;
-#endif
             }
 
             return current;
-        }
-
-        // Remove a node from this bucket
-        _Node * remove(const sig_t &sig, const _Key &key) {
-            _Node * node = lookup(sig, key);
-
-            // If we find this node, now it is in the front of our node list,
-            // we just remove it from the head
-            if (node) {
-                m_head = node->next();
-                node->set_next(NULL);
-                --m_size;
-            }
-
-            return node;
-        }
-
-        uint32  size(void) const {return m_size;}
-        _Node * head(void) const {return m_head;}
-        _Node * tail(void) const {
-            if (m_head == NULL)
-                return NULL;
-
-            _Node * current = m_head;
-            while (current->next()) {
-                current = current->next();
-            }
-
-            // If we find a node whose next is NULL, it is the tail of this bucket
-            return current;
-        }
-
-        void str(ostream &os) {
-            os << "\nBucket Size : " << m_size << std::endl;
-            _Node * curr = m_head;
-            while (curr) {
-                curr->str(os);
-                curr = curr->next();
-            }
         }
 
     public:
         uint32 m_size; // the size of this bucket
         _Node *m_head; // the pointer of the first node in this bucket
         _KeyEqual m_equal_to;
+        rte_rwlock_t m_lock;
 }; 
 
 template <typename _Bucket>
@@ -175,7 +181,6 @@ class BucketMgr {
             m_mask = m_size - 1;
 
             // Allocate memory for bucket 
-            // m_bucket_array = new bucket_t[m_size];
             char name[] = "bucket_array";
             uint32 bucket_array_size_in_bytes = m_size * sizeof(bucket_t);
             m_bucket_array = static_cast<bucket_t*>(rte_zmalloc(name, bucket_array_size_in_bytes, 0));

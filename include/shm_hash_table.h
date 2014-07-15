@@ -8,6 +8,7 @@
 #include <sstream>
 #include <rte_malloc.h>
 #include <rte_eal.h>
+#include <rte_rwlock.h>
 #include "hash_fun.h"
 #include "shm_common.h"
 #include "shm_bucket.h"
@@ -28,7 +29,7 @@ const u_int32_t DEFAULT_ENTRIES = 4096;
 template <typename _Key, typename _Value>
 class Node {
     public:
-        Node () : m_sig(0), m_next(NULL) {}
+        Node () : m_sig(0), m_next(NULL) {rte_rwlock_init(&m_lock);}
         ~Node () {}
         
         void fill(_Key k, _Value v, sig_t s) {
@@ -42,7 +43,9 @@ class Node {
 
         template <typename _Modifier>
         void update(_Value & new_value, _Modifier &action) {
+            rte_rwlock_write_lock(&m_lock);
             action(m_value, new_value);
+            rte_rwlock_write_unlock(&m_lock);
         }
 
         _Key key(void) const {return m_key;}
@@ -61,6 +64,7 @@ class Node {
         sig_t  m_sig;   // the sinature - hash value
         Node * m_next;  // the pointer of next node
         uint32 m_index; // the index of this node in node list, it should never be changed after initialization
+        rte_rwlock_t m_lock;
 };
 
 /*
@@ -102,6 +106,23 @@ class Node {
  *                                +-----+            |
  *                                   |_______________|
  *
+ *  About The lock:
+ *  The NodePool is in share memory. The lock is to protect the data of a NodePool object.
+ *
+ *  For public methods, they should be protected by m_lock. And you must make sure are not
+ *  called by other methods of NodePool. Otherwise, it make cause a dead lock. If a
+ *  public method has to be called by another method , create a private method like
+ *  return_nodelist, then call the private method from these method. This small trick can
+ *  make sure all public method are proteced by m_lock
+ *
+ *  For private methods, because all public methods are protected by m_lock, they are also
+ *  protected. 
+ *
+ *               +--------------------------+
+ *  client --->  | public methods with lock | ---> < private methods >
+ *               +--------------------------+                 |
+ *                            |                               v
+ *                            -------------------> < private date in share memory >
  * */
 template <typename _Node>
 class NodePool {
@@ -112,21 +133,17 @@ class NodePool {
 
         NodePool(uint32 size) : m_capacity(0), m_free_entries(0), m_freelist_num(0), 
                                 m_next_freelist_size(size), m_nodepool_head(NULL) {
-                                    // Initilize the m_freelist_array
-                                    memset(&m_freelist_array[0], 0, sizeof(m_freelist_array));
-                                    
-                                    // Create the first free list
+                                    rte_rwlock_init(&m_lock);
                                     resize();
                                 }
 
         ~NodePool() {
-            // Primary process should release the memory
-            if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
-                for (uint32 i = 0; i < m_freelist_num; ++i) {
-                    node_type * node_list = m_freelist_array[i];
-                    rte_free(node_list);
-                    m_freelist_array[i] = NULL;
-                }
+            rte_rwlock_write_lock(&m_lock);
+
+            for (uint32 i = 0; i < m_freelist_num; ++i) {
+                node_type * node_list = m_freelist_array[i];
+                rte_free(node_list);
+                m_freelist_array[i] = NULL;
             }
 
             m_capacity = 0;
@@ -134,20 +151,22 @@ class NodePool {
             m_freelist_num = 0;
             m_next_freelist_size = DEFAULT_LIST_SIZE;
             m_nodepool_head = NULL;
-        }
 
-        uint32 capacity(void) const {return m_capacity;}
-        uint32 free_entries(void) const {return m_free_entries;}
+            rte_rwlock_write_unlock(&m_lock);
+        }
 
         // Get a free node
         node_type * get_node(void) {
+            rte_rwlock_write_lock(&m_lock);
+
+            node_type * head = NULL;
             if (m_nodepool_head == NULL)
                 resize();
 
             if (m_nodepool_head == NULL)
-                return NULL;
+                goto exit;
 
-            node_type * head = m_nodepool_head;
+            head = m_nodepool_head;
             if (head->next() == NULL) {
                 // If the head is the last free node
                 m_nodepool_head = NULL;
@@ -158,6 +177,9 @@ class NodePool {
 
             --m_free_entries;
             construct_node(head);
+
+exit:
+            rte_rwlock_write_unlock(&m_lock);
             return head;
         }
 
@@ -166,11 +188,15 @@ class NodePool {
             if (node == NULL)
                 return;
 
+            rte_rwlock_write_lock(&m_lock);
+
             // Put this node at the front of m_free_node_list
             node->set_next(m_nodepool_head); 
             m_nodepool_head = node;
 
             ++m_free_entries;
+
+            rte_rwlock_write_unlock(&m_lock);
         }
 
         // Return nodes in a bucket to free list
@@ -179,13 +205,16 @@ class NodePool {
             if (!start || !end)
                 return;
 
-            // Put the node list decribed by start and end at the front of m_nodepool_head
-            end->set_next(m_nodepool_head);
-            m_nodepool_head = start;
-            m_free_entries += size;
+            rte_rwlock_write_lock(&m_lock);
+            return_nodelist(start, end, size);
+            rte_rwlock_write_unlock(&m_lock);
         }
 
-        void print(void) {
+        // Following three methods do not use lock
+        uint32 capacity(void) const {return m_capacity;}
+        uint32 free_entries(void) const {return m_free_entries;}
+
+        void print(void) const {
             std::ostringstream os;
             str(os);
             std::cout << os.str() << std::endl;
@@ -213,7 +242,6 @@ class NodePool {
             uint32 list_size_in_byte = node_cnt * sizeof(node_type);
             std::ostringstream name;
             name << "NodePool_FreeList_" << m_freelist_num;
-            //node_type * new_list = new node_type[size];
             node_type * new_list = static_cast<node_type *>(rte_zmalloc(name.str().c_str(), list_size_in_byte, 0));
             if (new_list == NULL)
                 return;
@@ -223,7 +251,7 @@ class NodePool {
             initialize_freenode_list(new_list, node_cnt, m_capacity);
             m_freelist_array[m_freelist_num] = new_list;
             node_type * end_of_list = &new_list[node_cnt - 1];
-            put_nodelist(new_list, end_of_list, node_cnt); // PutNodeList will calculate m_free_entries
+            return_nodelist(new_list, end_of_list, node_cnt); // PutNodeList will calculate m_free_entries
 
             // Calculate new capacity, free_list_num and next_free_list_size 
             m_capacity += node_cnt;
@@ -250,6 +278,18 @@ class NodePool {
             list[i].set_index(index_start);
         }
 
+        // This private function does not use lock
+        void return_nodelist(node_type *start, node_type *end, uint32 size) {
+            // If start or end is NULL, do nothing
+            if (!start || !end)
+                return;
+
+            // Put the node list decribed by start and end at the front of m_nodepool_head
+            end->set_next(m_nodepool_head);
+            m_nodepool_head = start;
+            m_free_entries += size;
+        }
+
         void construct_node(node_type *node) {::new ((void *)node) node_type;}
 
         void str(std::ostream &os) {
@@ -260,12 +300,13 @@ class NodePool {
         }
 
     private:
-        uint32     m_capacity;            // the capacity of this free node pool
-        uint32     m_free_entries;        // the count of available free nodes in this pool
+        uint32     m_capacity;           // the capacity of this free node pool
+        uint32     m_free_entries;       // the count of available free nodes in this pool
         uint32     m_freelist_num;       // how many free lists we have now
         uint32     m_next_freelist_size; // the size of next free list
         node_type *m_nodepool_head;      // the head of free node pool
         node_type *m_freelist_array[MAX_RESIZE_COUNT]; // free lists
+        rte_rwlock_t m_lock;               // used to protect this NodePool in share memory
 };
 
 template <typename _Key, typename _Value, typename _HashFunc = hash<_Key>, typename _EqualKey = std::equal_to<_Key> >
@@ -407,14 +448,17 @@ class hash_table {
             if (bucket == NULL)
                 return;
 
-            node_type * start = bucket->head();
-            node_type * end   = bucket->tail();
+            node_type * start = bucket->clear();
+            node_type * end = start;
+            uint32 size = 0;
+
+            while (end) {
+                ++size;
+                end = end->next();
+            }
 
             // Put nodes to m_node_pool
-            m_node_pool.put_nodelist(start, end, bucket->size());
-
-            // Now it is time to clear bucket
-            bucket->clear();
+            m_node_pool.put_nodelist(start, end, size);
 
 #ifdef DEBUG
             print_bucketlist(*bucket);

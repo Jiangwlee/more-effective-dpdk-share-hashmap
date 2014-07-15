@@ -30,6 +30,14 @@ class hash_map {
                      rte_snprintf(m_name, sizeof(m_name), "HT_%s", name);
                  }
 
+        ~hash_map() {
+            // call the destructor to release memory on primary process
+            if (rte_eal_process_type() == RTE_PROC_PRIMARY)
+                m_ht->~_Ht();
+
+            m_ht = NULL;
+        }
+
         bool create_or_attach(void) {
             uint32 shm_size = sizeof(_Ht);
             const rte_proc_type_t proc_type = rte_eal_process_type();
