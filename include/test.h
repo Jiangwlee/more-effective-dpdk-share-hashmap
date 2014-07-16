@@ -11,9 +11,10 @@
 using shm_stl::hash_map;
 using namespace std;
 
-struct MyAssign {
-    void operator() (int & old_v, int &new_v) {
-        old_v = new_v;
+template <typename _T>
+struct Add {
+    void operator() (_T & old_v, _T &new_v) {
+        old_v += new_v;
     } 
 };
 
@@ -57,6 +58,18 @@ void test() {
     hash_map<_Key, _Value> hashmap(name, 8, 8);
     hashmap.create_or_attach();
     //init(hashmap);
+    const rte_memzone * zone;
+    volatile bool * flag = NULL;
+    char zone_name[] = "share_flag";
+
+    if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
+        zone = rte_memzone_reserve(zone_name, sizeof(bool), 0, 0);
+        flag = (bool*)zone->addr;
+        *flag = false;
+    } else {
+        zone = rte_memzone_lookup(zone_name);
+        flag = (bool*)zone->addr;
+    }
 
     cout << "Please input your choice : a[dd], d[elete], f[ind], m[odify], s[how], q[uit]" << endl;
 
@@ -65,6 +78,7 @@ void test() {
         int quit = false;
         int key = 0;
         int value = 0;
+        int count = 20000;
 
         switch (input) {
             case 'a':
@@ -94,6 +108,37 @@ void test() {
             case 'q':
                 quit = true;
                 break;
+
+            case 't':
+                // test lock on multi processes
+                key = prompt_key();
+                value = prompt_value();
+                Add<_Value> add;
+                if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
+                    cout << "primary process! " << endl;
+                    if (*flag)
+                        cout << "flag is true! " << endl;
+                    else
+                        cout << "flag is false! " << endl;
+                    *flag = true;
+                    while (count > 0) {
+                        hashmap.update(key, value, add);
+                        count--;
+                    }
+                } else {
+                    cout << "primary process! " << endl;
+                    if (*flag)
+                        cout << "flag is true! " << endl;
+                    else
+                        cout << "flag is false! " << endl;
+                    while (*flag == false) {}
+                    while (count > 0) {
+                        hashmap.update(key, value, add);
+                        count--;
+                    }
+                }
+                break;
+
             default:
                 continue;
         }

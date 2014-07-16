@@ -489,8 +489,8 @@ class hash_table {
         }
         
     private:
-        hasher         m_hash_func;
-        bucket_mgr     m_buckets;
+        hasher m_hash_func;
+        bucket_mgr m_buckets;
         node_pool_type m_node_pool;
 };
 
