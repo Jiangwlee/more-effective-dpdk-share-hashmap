@@ -121,8 +121,8 @@ class Bucket {
         }
 
     public:
-        uint32 m_size; // the size of this bucket
-        _Node *m_head; // the pointer of the first node in this bucket
+        volatile uint32 m_size; // the size of this bucket
+        _Node * volatile m_head; // the pointer of the first node in this bucket
         _KeyEqual m_equal_to;
         rte_rwlock_t m_lock;
 }; 
@@ -191,7 +191,7 @@ class BucketMgr {
         }
 
     private:
-        uint32    m_size;
+        volatile uint32 m_size;
         uint32    m_mask;
         bucket_t *m_bucket_array;
 };

@@ -13,7 +13,7 @@ using namespace std;
 
 template <typename _T>
 struct Add {
-    void operator() (_T & old_v, _T &new_v) {
+    void operator() (volatile _T & old_v, _T &new_v) {
         old_v += new_v;
     } 
 };

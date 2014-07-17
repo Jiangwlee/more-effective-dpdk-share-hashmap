@@ -25,7 +25,7 @@ class hash_map {
         typedef hash_table<key_type, value_type, hasher, key_equal> _Ht;
 
     public:
-        hash_map(char * name, uint32 entries = DEFAULT_ENTRIES, uint32 buckets = DEFAULT_BUCKET_NUM):
+        hash_map(const char * name, uint32 entries = DEFAULT_ENTRIES, uint32 buckets = DEFAULT_BUCKET_NUM):
                  m_entries(entries), m_buckets(buckets) {
                      rte_snprintf(m_name, sizeof(m_name), "HT_%s", name);
                  }

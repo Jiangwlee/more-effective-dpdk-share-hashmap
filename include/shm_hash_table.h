@@ -19,7 +19,7 @@ __SHM_STL_BEGIN
 
 template <typename _Value>
 struct Assignment {
-    void operator() (_Value &old_value, const _Value &new_value) {
+    void operator() (volatile _Value &old_value, const _Value &new_value) {
         old_value = new_value;
     }
 };
@@ -60,9 +60,9 @@ class Node {
 
     private:
         _Key   m_key;
-        _Value m_value;
+        _Value m_value; // The member of _Key and _Value should be volatile
         sig_t  m_sig;   // the sinature - hash value
-        Node * m_next;  // the pointer of next node
+        Node * volatile m_next;  // the pointer of next node
         uint32 m_index; // the index of this node in node list, it should never be changed after initialization
         rte_rwlock_t m_lock;
 };
@@ -141,8 +141,8 @@ class NodePool {
             rte_rwlock_write_lock(&m_lock);
 
             for (uint32 i = 0; i < m_freelist_num; ++i) {
-                node_type * node_list = m_freelist_array[i];
-                rte_free(node_list);
+                void * free_list = (void *)(m_freelist_array[i]);
+                rte_free(free_list);
                 m_freelist_array[i] = NULL;
             }
 
@@ -300,12 +300,12 @@ exit:
         }
 
     private:
-        uint32     m_capacity;           // the capacity of this free node pool
-        uint32     m_free_entries;       // the count of available free nodes in this pool
-        uint32     m_freelist_num;       // how many free lists we have now
-        uint32     m_next_freelist_size; // the size of next free list
-        node_type *m_nodepool_head;      // the head of free node pool
-        node_type *m_freelist_array[MAX_RESIZE_COUNT]; // free lists
+        volatile uint32     m_capacity;           // the capacity of this free node pool
+        volatile uint32     m_free_entries;       // the count of available free nodes in this pool
+        volatile uint32     m_freelist_num;       // how many free lists we have now
+        volatile uint32     m_next_freelist_size; // the size of next free list
+        node_type * volatile m_nodepool_head;      // the head of free node pool
+        node_type * volatile m_freelist_array[MAX_RESIZE_COUNT]; // free lists
         rte_rwlock_t m_lock;               // used to protect this NodePool in share memory
 };
 
