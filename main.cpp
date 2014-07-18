@@ -25,7 +25,33 @@ int main(int argc, char **argv) {
     if (ret < 0)
     	rte_panic("Cannot init EAL\n");
 
-    //char name[] = "test";
-    test<int, int>();
+    char name[] = "test";
+    shm_stl::hash_map<int, int> hs(name);
+    hs.create_or_attach();
+    hs.insert(1, 10);
+
+    int value = 0;
+    if (hs.find(1, &value))
+        cout << "Key : 1 --> Value : " << value << endl;
+
+    int new_value = 11;
+    Add<int> add;
+    hs.update(1, new_value, add);
+
+    if (hs.find(1, &value))
+        cout << "Key : 1 --> Value : " << value << endl;
+
+    if (hs.erase(1, &value))
+        cout << "Erase Key : 1 --> Value " << value << " from hash_map!" << endl;
+    else
+        cout << "Erase Key : 1 fail!" << endl;
+
+
+    if (!hs.find(1, &value))
+        cout << "Can't find Key 1!" << endl;
+    else
+        cout << "Key : 1 --> Value : " << value << endl;
+
+    //test<int, int>();
     return 0;
 }

@@ -391,9 +391,7 @@ class hash_table {
         bool find(const key_type & key, value_type * ret = NULL) {
             node_type * node = lookup_node_by_key(key);
             if (node) {
-                if (ret) {
-                    *ret = node->value();
-                }
+                if (ret) *ret = node->value();
                 return true;
             } else {
                 return false;
@@ -409,7 +407,7 @@ class hash_table {
             if (bucket) { 
                 node_type * node = bucket->remove(sig, key);
                 if (node) {
-                    *ret = node->value();
+                    if (ret) *ret = node->value();
 
                     // Put this node to free node list
                     m_node_pool.put_node(node);
