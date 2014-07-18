@@ -33,13 +33,24 @@ class Node {
         ~Node () {}
         
         void fill(_Key k, _Value v, sig_t s) {
+            rte_rwlock_write_lock(&m_lock);
             m_key = k;
             m_value = v;
             m_sig = s;
+            rte_rwlock_write_unlock(&m_lock);
         }
 
-        void set_next(Node * next) {m_next = next;}
-        void set_index(uint32 idx) {m_index = idx;}
+        void set_next(Node * next) {
+            rte_rwlock_write_lock(&m_lock);
+            m_next = next;
+            rte_rwlock_write_unlock(&m_lock);
+        }
+
+        void set_index(uint32 idx) {
+            rte_rwlock_write_lock(&m_lock);
+            m_index = idx;
+            rte_rwlock_write_unlock(&m_lock);
+        }
 
         template <typename _Modifier>
         void update(_Value & new_value, _Modifier &action) {

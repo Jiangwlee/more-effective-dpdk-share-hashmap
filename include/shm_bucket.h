@@ -85,7 +85,7 @@ class Bucket {
 
         uint32  size(void) const {return m_size;}
         _Node * head(void) const {return m_head;}
-        void str(ostream &os) {
+        void str(ostream &os) const {
             os << "\nBucket Size : " << m_size << std::endl;
             _Node * curr = m_head;
             while (curr) {
