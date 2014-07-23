@@ -94,10 +94,10 @@ class hash_map {
             return m_ht->erase(key, ret);
         }
 
-        template <typename _Tmpvalue, typename _Modifier>
-        bool update(const key_type &key, _Tmpvalue tmp_value, _Modifier &update) {
+        template <typename _Params, typename _Modifier>
+        bool update(const key_type &key, _Params params, _Modifier &update) {
             RETURN_FALSE_IF_NULL(m_ht);
-            return m_ht->update(key, tmp_value, update);
+            return m_ht->update(key, params, update);
         }
 
         void clear(void) {

@@ -70,10 +70,10 @@ class Node {
             rte_rwlock_write_unlock(&m_lock);
         }
 
-        template <typename _Tmpvalue, typename _Modifier>
-        void update(_Tmpvalue & tmp_value, _Modifier &action) {
+        template <typename _Params, typename _Modifier>
+        void update(_Params& params, _Modifier &action) {
             rte_rwlock_write_lock(&m_lock);
-            action(m_value, tmp_value);
+            action(m_value, params);
             rte_rwlock_write_unlock(&m_lock);
         }
 
@@ -428,11 +428,11 @@ class hash_table {
         }
 
         // Update the value
-        template <typename _Modifier>
-        bool update(const key_type & key, value_type & new_value, _Modifier &action) {
+        template <typename _Params, typename _Modifier>
+        bool update(const key_type & key, _Params & params, _Modifier &action) {
             node_type * node = lookup_node_by_key(key);
             if (node) {
-                node->update(new_value, action); 
+                node->update(params, action); 
                 return true;
             } else {
                 return false;
