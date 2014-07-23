@@ -70,10 +70,10 @@ class Node {
             rte_rwlock_write_unlock(&m_lock);
         }
 
-        template <typename _Modifier>
-        void update(_Value & new_value, _Modifier &action) {
+        template <typename _Tmpvalue, typename _Modifier>
+        void update(_Tmpvalue & tmp_value, _Modifier &action) {
             rte_rwlock_write_lock(&m_lock);
-            action(m_value, new_value);
+            action(m_value, tmp_value);
             rte_rwlock_write_unlock(&m_lock);
         }
 
