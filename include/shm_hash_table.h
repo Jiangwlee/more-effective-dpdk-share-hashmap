@@ -47,34 +47,21 @@ const u_int32_t DEFAULT_ENTRIES = 4096;
 template <typename _Key, typename _Value>
 class Node {
     public:
-        Node () : m_sig(0), m_next(NULL) {rte_rwlock_init(&m_lock);}
+        Node () : m_sig(0), m_next(NULL) {}
         ~Node () {}
         
         void fill(_Key k, _Value v, sig_t s) {
-            rte_rwlock_write_lock(&m_lock);
             m_key = k;
             m_value = v;
             m_sig = s;
-            rte_rwlock_write_unlock(&m_lock);
         }
 
-        void set_next(Node * next) {
-            rte_rwlock_write_lock(&m_lock);
-            m_next = next;
-            rte_rwlock_write_unlock(&m_lock);
-        }
-
-        void set_index(uint32 idx) {
-            rte_rwlock_write_lock(&m_lock);
-            m_index = idx;
-            rte_rwlock_write_unlock(&m_lock);
-        }
+        void set_next(Node * next) {m_next = next;}
+        void set_index(uint32 idx) {m_index = idx;}
 
         template <typename _Params, typename _Modifier>
         void update(_Params& params, _Modifier &action) {
-            rte_rwlock_write_lock(&m_lock);
             action(m_value, params);
-            rte_rwlock_write_unlock(&m_lock);
         }
 
         _Key key(void) const {return m_key;}
@@ -93,7 +80,6 @@ class Node {
         sig_t  m_sig;   // the sinature - hash value
         Node * volatile m_next;  // the pointer of next node
         uint32 m_index; // the index of this node in node list, it should never be changed after initialization
-        rte_rwlock_t m_lock;
 };
 
 /*
@@ -346,7 +332,7 @@ class hash_table {
         typedef _Value value_type;
         typedef _HashFunc hasher;
         typedef _EqualKey key_equal;
-        typedef Bucket<node_type, key_type, key_equal>  bucket_type;
+        typedef Bucket<node_type, key_type, value_type, key_equal>  bucket_type;
         typedef NodePool<node_type> node_pool_type;
         typedef BucketMgr<bucket_type> bucket_mgr;
 
@@ -366,12 +352,12 @@ class hash_table {
             if (node == NULL)
                 return false;
 
-            // Compute signature and fill the node
+            // Fill this node
             sig_t sig = m_hash_func(key);
             node->fill(key, value, sig);
 
             // Put node to bucket
-            bucket_type * bucket = m_buckets.get_bucket_by_sig(sig); 
+            bucket_type * bucket = m_buckets.get_bucket_by_sig(sig);
             bucket->put(node);
 
 #ifdef DEBUG
@@ -389,26 +375,23 @@ class hash_table {
          *  ret is an output parameter to take the value if the key is in the hash table
          * */
         bool find(const key_type & key, value_type * ret = NULL) {
-            node_type * node = lookup_node_by_key(key);
-            if (node) {
-                if (ret) *ret = node->value();
-                return true;
-            } else {
-                return false;
-            }
+            // Get bucket
+            sig_t sig = m_hash_func(key);
+            bucket_type * bucket = m_buckets.get_bucket_by_sig(sig);
+
+            // Search in this bucket
+            return bucket->lookup(sig, key, ret); 
         }
 
         bool erase(const key_type &key, value_type * ret = NULL) {
-            // Compute signature and get bucket
+            // Get bucket
             sig_t sig = m_hash_func(key);
             bucket_type * bucket = m_buckets.get_bucket_by_sig(sig);
 
             // Remove this node from bucket
             if (bucket) { 
-                node_type * node = bucket->remove(sig, key);
+                node_type * node = bucket->remove(sig, key, ret);
                 if (node) {
-                    if (ret) *ret = node->value();
-
                     // Put this node to free node list
                     m_node_pool.put_node(node);
 #ifdef DEBUG
@@ -430,13 +413,9 @@ class hash_table {
         // Update the value
         template <typename _Params, typename _Modifier>
         bool update(const key_type & key, _Params & params, _Modifier &action) {
-            node_type * node = lookup_node_by_key(key);
-            if (node) {
-                node->update(params, action); 
-                return true;
-            } else {
-                return false;
-            }
+            sig_t sig = m_hash_func(key);
+            bucket_type * bucket = m_buckets.get_bucket_by_sig(sig);
+            return bucket->update(sig, key, params, action);
         }
 
         // Clear this hash table
@@ -469,7 +448,6 @@ class hash_table {
             }
         }
 
-
         // Return nodes in a bucket to free list
         void put_bucket_to_freelist(bucket_type *bucket) {
             if (bucket == NULL)
@@ -495,16 +473,10 @@ class hash_table {
 #endif
         }
 
-        node_type * lookup_node_by_key(const key_type & key) {
+        bucket_type * find_bucket(const key_type & key) {
             // Compute signature and get bucket
             sig_t sig = m_hash_func(key);
-            bucket_type * bucket = m_buckets.get_bucket_by_sig(sig);
-
-            // Search in this bucket
-            if (bucket)
-                return bucket->lookup(sig, key); 
-            else
-                return NULL;
+            return m_buckets.get_bucket_by_sig(sig);
         }
 
         void print_bucketlist(const bucket_type &bucket) const {

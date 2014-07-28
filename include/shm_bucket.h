@@ -45,7 +45,7 @@ struct PrintNode {
     }
 };
 
-template <typename _Node, typename _Key, typename _KeyEqual>
+template <typename _Node, typename _Key, typename _Value, typename _KeyEqual>
 class Bucket {
     public:
         Bucket () : m_size(0), m_head(NULL) {rte_rwlock_init(&m_lock);}
@@ -74,17 +74,18 @@ class Bucket {
         }
 
         // Lookup a node by signature and key
-        _Node * lookup(const sig_t &sig, const _Key &key) {
-            rte_rwlock_write_lock(&m_lock);
+        _Node * lookup(const sig_t &sig, const _Key &key, _Value * ret) {
+            rte_rwlock_read_lock(&m_lock);
 
             _Node * node = find_node(sig, key);
+            if (node && ret) *ret = node->value();
 
-            rte_rwlock_write_unlock(&m_lock);
+            rte_rwlock_read_unlock(&m_lock);
             return node;
         }
 
         // Remove a node from this bucket
-        _Node * remove(const sig_t &sig, const _Key &key) {
+        _Node * remove(const sig_t &sig, const _Key &key, _Value * ret) {
             rte_rwlock_write_lock(&m_lock);
 
             _Node * node = find_node(sig, key);
@@ -95,11 +96,32 @@ class Bucket {
                 m_head = node->next();
                 node->set_next(NULL);
                 --m_size;
+
+                if (ret)
+                    *ret = node->value();
             }
 
             rte_rwlock_write_unlock(&m_lock);
             return node;
         }
+
+        // update a node in this bucket
+        template <typename _Params, typename _Modifier>
+        bool update(const sig_t &sig, const _Key &key, _Params &params, _Modifier &action) {
+            rte_rwlock_write_lock(&m_lock);
+
+            bool ret = false;
+            _Node * node = find_node(sig, key);
+
+            // If we find this node, update it! 
+            if (node) {
+                node->update(params, action);
+                ret = true;
+            }
+
+            rte_rwlock_write_unlock(&m_lock);
+            return ret;
+        } 
 
         uint32  size(void) const {return m_size;}
         _Node * head(void) const {return m_head;}
