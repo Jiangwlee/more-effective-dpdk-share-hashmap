@@ -27,12 +27,12 @@ Build
 Run
 ---
 1. Make sure you have run dpdk-1.6.0r2/tools/setup.sh to set up your dpdk running environment
-   < You would know what I mean if you have run the helloworld program >
+   >< You would know what I mean if you have run the helloworld program >
 
 2. Start the primary process
-    $ sudo ./build/hashmap -c 1 -n 4 --proc-type=primary
+   >$ sudo ./build/hashmap -c 1 -n 4 --proc-type=primary
 
 3. Start the secondary process
-    $ sudo ./build/hashmap -c c -n 4 --proc-type=secondary
+   >$ sudo ./build/hashmap -c c -n 4 --proc-type=secondary
 
 Any issue, you can contact with me by email <jiangwlee@163.com>
