@@ -1,4 +1,5 @@
 /*
+ * return  m_ht->find(key, ret);
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -19,11 +20,17 @@
 #ifndef __SHM_HASH_MAP_H_
 #define __SHM_HASH_MAP_H_
 
+#include "shm_hash_table.h"
+#include "shm_profiler.h"
+
 #include <iostream>
 #include <sstream>
+#include <fstream>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include <rte_memzone.h>
 #include <rte_string_fns.h>
-#include "shm_hash_table.h"
 
 #define RETURN_FALSE_IF_NULL(ptr) do {\
     if (ptr == NULL) return false;\
@@ -43,13 +50,11 @@ class hash_map {
         typedef hash_table<key_type, value_type, hasher, key_equal> _Ht;
 
     public:
-        hash_map(const char * name, uint32 entries = DEFAULT_ENTRIES, uint32 buckets = DEFAULT_BUCKET_NUM):
-                 m_entries(entries), m_buckets(buckets) {
+        hash_map(const char * name, uint32 buckets = DEFAULT_BUCKET_NUM): m_buckets(buckets) {
                      rte_snprintf(m_name, sizeof(m_name), "HT_%s", name);
                  }
 
         ~hash_map() {
-            // call the destructor to release memory on primary process
             if (rte_eal_process_type() == RTE_PROC_PRIMARY)
                 m_ht->~_Ht();
 
@@ -64,7 +69,7 @@ class hash_map {
                 const struct rte_memzone * zone = rte_memzone_reserve(&m_name[0], shm_size, 0, 
                                                                       RTE_MEMZONE_SIZE_HINT_ONLY);
                 // replacement new, call the constructor of hash table
-                m_ht = ::new (zone->addr) _Ht(m_entries, m_buckets);
+                m_ht = ::new (zone->addr) _Ht(m_buckets);
             } else if (proc_type == RTE_PROC_SECONDARY) {
                 const struct rte_memzone * zone = rte_memzone_lookup(&m_name[0]);
                 m_ht = static_cast<_Ht*>(zone->addr);
@@ -79,9 +84,10 @@ class hash_map {
             }
         }
 
+
         bool find(const key_type &key, value_type * ret = NULL) {
             RETURN_FALSE_IF_NULL(m_ht);
-            return m_ht->find(key, ret); 
+            return m_ht->find(key, ret);
         }
 
         bool insert(const key_type &key, const value_type &value) {
@@ -112,11 +118,31 @@ class hash_map {
                 os << "Hash table is not created!" << std::endl;
             }
 
-            std::cout << os.str() << std::endl;
+            std::cout << os.str().c_str() << std::endl;
+        }
+
+        uint32 capacity(void) const {
+            if (m_ht)
+                return m_ht->capacity();
+            else
+                return 0;
+        }
+
+        uint32 free_entries(void) const {
+            if (m_ht)
+                return m_ht->free_entries();
+            else
+                return 0;
+        }
+
+        uint32 used_entries(void) const {
+            if (m_ht)
+                return m_ht->used_entries();
+            else
+                return 0;
         }
 
     private:
-        uint32 m_entries;
         uint32 m_buckets;
         char   m_name[SHM_NAME_SIZE];
         _Ht *  m_ht;

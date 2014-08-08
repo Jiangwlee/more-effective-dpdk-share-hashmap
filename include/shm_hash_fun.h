@@ -32,11 +32,16 @@
 #define __SHM_STL_HASH_FUN_H
 
 #include <stddef.h>
+#include <rte_jhash.h>
 #include "shm_stl_config.h"
 
 __SHM_STL_BEGIN
 
-template <class _Key> struct hash { };
+template <class _Key> struct hash {
+    size_t operator() (const _Key &key) const {
+        return rte_jhash(&key, sizeof(key), 0);
+    }
+};
 
 inline size_t __stl_hash_string(const char* __s)
 {
