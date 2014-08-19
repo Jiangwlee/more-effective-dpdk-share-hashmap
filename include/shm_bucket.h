@@ -88,7 +88,10 @@ class Bucket {
             }
 
             node = m_node_pool.get_node();
-            if (node == NULL) goto exit;
+            if (node == NULL) {
+                ret = false;
+                goto exit;
+            }
             node->fill(key, value, signature);
             node->set_next(m_head);
             m_head = node;
