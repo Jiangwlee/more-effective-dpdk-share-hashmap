@@ -51,7 +51,7 @@ class hash_map {
 
     public:
         hash_map(const char * name, uint32 buckets = DEFAULT_BUCKET_NUM): m_buckets(buckets) {
-                     rte_snprintf(m_name, sizeof(m_name), "HT_%s", name);
+                     snprintf(m_name, sizeof(m_name), "HT_%s", name);
                  }
 
         ~hash_map() {
